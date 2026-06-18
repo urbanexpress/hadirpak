@@ -6,11 +6,11 @@
     <title>Aplikasi Absensi Geo</title>
     
     <!-- React & ReactDOM -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
     
     <!-- Babel for JSX -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.28.4/babel.min.js"></script>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -27,12 +27,28 @@
 <body class="bg-gray-50 text-gray-800 font-sans">
     <div id="root"></div>
 
+    <script>
+        window.addEventListener('error', function (e) {
+            var root = document.getElementById('root');
+            if (root && !root.hasChildNodes()) {
+                root.innerHTML =
+                    '<div style="max-width:600px;margin:40px auto;padding:20px;font-family:sans-serif;' +
+                    'color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;">' +
+                    '<strong>Gagal memuat aplikasi.</strong><br><br>' +
+                    'Detail error: ' + (e.message || 'tidak diketahui') + '<br><br>' +
+                    '<small>Buka DevTools &rarr; tab Console untuk detail lengkap, atau cek tab Network ' +
+                    'apakah ada file React/Babel/Supabase yang gagal diunduh (warna merah).</small>' +
+                    '</div>';
+            }
+        });
+    </script>
+
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 		// --- 1. INISIALISASI SUPABASE (BARU) ---
         const supabaseUrl = 'https://lioxhmqkkichbdwdelxg.supabase.co'; // Ganti ini
         const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxpb3hobXFra2ljaGJkd2RlbHhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkwNzcxMTcsImV4cCI6MjA4NDY1MzExN30.0L0IctUNdnjQvvKcQ57TsES2_zAEZtaXbm4SpkUUmg0';      // Ganti ini
-        const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+        const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 
         // --- ICONS (Inline SVGs to replace Lucide dependency) ---
         const IconMapPin = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>;
@@ -121,9 +137,10 @@
             const fetchData = async () => {
                 try {
                     // 1. Ambil Settings
-                    const { data: settingData } = await supabase.from('settings').select('*').single();
+                    const { data: settingData } = await supabaseClient.from('settings').select('*').single();
                     if (settingData) {
                         setSettings({
+                            id: settingData.id,
                             lat: settingData.office_lat,
                             lng: settingData.office_lng,
                             radius: settingData.radius_meters,
@@ -133,7 +150,7 @@
                     }
 
                     // 2. Ambil Karyawan
-                    const { data: empData } = await supabase.from('employees').select('*').order('name', { ascending: true });
+                    const { data: empData } = await supabaseClient.from('employees').select('*').order('name', { ascending: true });
                     if (empData) {
                         // Mapping nama field database (snake_case) ke aplikasi (camelCase)
                         const mappedEmployees = empData.map(e => ({
@@ -148,7 +165,7 @@
                     }
 
                     // 3. Ambil Log Absensi (Hari ini saja biar ringan, atau 7 hari terakhir)
-                    const { data: logData } = await supabase.from('attendance_logs')
+                    const { data: logData } = await supabaseClient.from('attendance_logs')
                         .select('*')
                         .order('timestamp', { ascending: false });
                         
@@ -180,7 +197,7 @@
                 fetchData(); // Tarik data saat pertama buka
                 
                 // Realtime Subscription (Agar update otomatis tanpa reload)
-                const channel = supabase
+                const channel = supabaseClient
                     .channel('realtime_changes')
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_logs' }, () => {
                         fetchData(); // Jika ada absen baru, tarik data ulang
@@ -197,7 +214,7 @@
                 
                 return () => {
                     clearInterval(timer);
-                    supabase.removeChannel(channel);
+                    supabaseClient.removeChannel(channel);
                 };
             }, []);
 
@@ -251,7 +268,7 @@
 
                 try {
                     // 2. Panggil RPC dengan parameter p_device_id
-                    const { data, error } = await supabase.rpc('submit_attendance', {
+                    const { data, error } = await supabaseClient.rpc('submit_attendance', {
                         p_employee_id: parseInt(employeeId),
                         p_user_lat: userLocation.lat,
                         p_user_lng: userLocation.lng,
@@ -392,7 +409,7 @@ function ManageEmployees({ employees }) {
                 if (!window.confirm(`Reset Device untuk ${empName}?\n\nLakukan ini HANYA jika karyawan ganti HP.`)) return;
                 
                 try {
-                    const { error } = await supabase
+                    const { error } = await supabaseClient
                         .from('employees')
                         .update({ device_id: null }) // Kosongkan device_id di database
                         .eq('id', empId);
@@ -418,11 +435,11 @@ function ManageEmployees({ employees }) {
 
                 try {
                     if (formData.id) {
-                        const { error } = await supabase.from('employees').update(payload).eq('id', formData.id);
+                        const { error } = await supabaseClient.from('employees').update(payload).eq('id', formData.id);
                         if (error) throw error;
                         alert('Data berhasil diupdate!');
                     } else {
-                        const { error } = await supabase.from('employees').insert([payload]);
+                        const { error } = await supabaseClient.from('employees').insert([payload]);
                         if (error) throw error;
                         alert('Karyawan berhasil ditambahkan!');
                     }
@@ -438,7 +455,7 @@ function ManageEmployees({ employees }) {
             const handleDelete = async (id) => {
                 if (!window.confirm('Yakin ingin menghapus karyawan ini?')) return;
                 try {
-                    const { error } = await supabase.from('employees').delete().eq('id', id);
+                    const { error } = await supabaseClient.from('employees').delete().eq('id', id);
                     if (error) throw error;
                     alert('Karyawan dihapus.');
                 } catch (error) {
@@ -500,7 +517,7 @@ function ManageEmployees({ employees }) {
                 if (!window.confirm('Hapus data absen ini? \n\nPERHATIAN: Setelah dihapus, karyawan bisa absen ulang untuk hari ini.')) return;
 
                 try {
-                    const { error } = await supabase
+                    const { error } = await supabaseClient
                         .from('attendance_logs')
                         .delete()
                         .eq('id', id);
@@ -583,14 +600,41 @@ function ManageEmployees({ employees }) {
 
         function GlobalSettings({ settings, setSettings }) {
             const [localSettings, setLocalSettings] = useState(settings);
-            const handleSave = () => { setSettings(localSettings); alert('Disimpan!'); };
+            const [isSaving, setIsSaving] = useState(false);
+
+            const handleSave = async () => {
+                setIsSaving(true);
+                const payload = {
+                    office_lat: localSettings.lat,
+                    office_lng: localSettings.lng,
+                    radius_meters: localSettings.radius,
+                    office_name: localSettings.name,
+                    admin_pin: localSettings.adminPin
+                };
+
+                try {
+                    let error;
+                    if (localSettings.id) {
+                        ({ error } = await supabaseClient.from('settings').update(payload).eq('id', localSettings.id));
+                    } else {
+                        ({ error } = await supabaseClient.from('settings').insert([payload]));
+                    }
+                    if (error) throw error;
+                    setSettings(localSettings);
+                    alert('Disimpan!');
+                } catch (err) {
+                    alert('Gagal menyimpan ke server: ' + err.message);
+                } finally {
+                    setIsSaving(false);
+                }
+            };
 
             return (
                 <div className="space-y-6">
                     <div className="bg-orange-50 p-4 rounded-lg border border-orange-200"><h4 className="font-bold text-orange-800 mb-2 flex items-center gap-2"><IconAlertTriangle className="w-4 h-4"/> Area Sensitif</h4><p className="text-sm text-orange-700">Hati-hati mengubah koordinat.</p></div>
                     <div className="grid md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium mb-1">Lat</label><input type="number" step="any" className="w-full border p-2 rounded" value={localSettings.lat} onChange={(e) => setLocalSettings({...localSettings, lat: parseFloat(e.target.value)})} /></div><div><label className="block text-sm font-medium mb-1">Lng</label><input type="number" step="any" className="w-full border p-2 rounded" value={localSettings.lng} onChange={(e) => setLocalSettings({...localSettings, lng: parseFloat(e.target.value)})} /></div></div>
                     <div className="grid md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium mb-1">Radius (m)</label><input type="number" className="w-full border p-2 rounded" value={localSettings.radius} onChange={(e) => setLocalSettings({...localSettings, radius: parseInt(e.target.value)})} /></div><div><label className="block text-sm font-medium mb-1">PIN Admin</label><input type="text" maxLength={6} className="w-full border p-2 rounded" value={localSettings.adminPin} onChange={(e) => setLocalSettings({...localSettings, adminPin: e.target.value})} /></div></div>
-                    <button onClick={handleSave} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 w-full md:w-auto">Simpan</button>
+                    <button onClick={handleSave} disabled={isSaving} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 disabled:bg-gray-400 w-full md:w-auto">{isSaving ? 'Menyimpan...' : 'Simpan'}</button>
                 </div>
             );
         }
